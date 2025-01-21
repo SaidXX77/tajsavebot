@@ -2,7 +2,7 @@ from aiogram import Bot, Dispatcher, executor
 from aiogram.types import Update
 import logging
 
-TOKEN = "<7341799826:AAFS-TMnZIEhbV8ZV2QB5X-DelfMl4skKaE>"
+TOKEN = "7341799826:AAFS-TMnZIEhbV8ZV2QB5X-DelfMl4skKaE"
 WEBHOOK_URL = "https://<your-host>.onrender.com/webhook"  # Укажите URL вашего хоста
 
 bot = Bot(token=TOKEN)

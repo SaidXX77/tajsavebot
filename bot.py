@@ -13,10 +13,19 @@ async def start_handler(message):
     await message.reply("Hello! I'm running on Webhook!")
 
 async def on_startup(dp):
-    await bot.set_webhook(WEBHOOK_URL)
+    try:
+        await bot.set_webhook(WEBHOOK_URL)
+        logging.info(f"Webhook установлен: {WEBHOOK_URL}")
+    except Exception as e:
+        logging.error(f"Ошибка установки вебхука: {e}")
 
 async def on_shutdown(dp):
-    await bot.delete_webhook()
+    try:
+        await bot.delete_webhook()
+        logging.info("Webhook удалён")
+    except Exception as e:
+        logging.error(f"Ошибка удаления вебхука: {e}")
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

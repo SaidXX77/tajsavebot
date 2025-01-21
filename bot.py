@@ -3,7 +3,7 @@ from aiogram.types import Update
 import logging
 
 TOKEN = "7341799826:AAFS-TMnZIEhbV8ZV2QB5X-DelfMl4skKaE"
-WEBHOOK_URL = "https://<tajsavebot>.onrender.com/webhook"  # Укажите URL вашего хоста
+WEBHOOK_URL = "https://<tajsavebot-2>.onrender.com/webhook"  # Укажите URL вашего хоста
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)

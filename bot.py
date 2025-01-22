@@ -62,7 +62,11 @@ async def handle_message(message: types.Message):
         subscribe_button = InlineKeyboardButton("Подписаться на канал", url=f"https://t.me/{CHANNEL_ID}")
         keyboard.add(subscribe_button)
 
-        await message.reply("Чтобы использовать бота, подпишитесь на наш канал.", reply_markup=keyboard)
+        # Добавляем кнопку для подтверждения подписки
+        subscribe_confirm_button = InlineKeyboardButton("Я подписался", callback_data="confirm_subscription")
+        keyboard.add(subscribe_confirm_button)
+
+        await message.reply("Чтобы использовать бота, подпишитесь на наш канал и нажмите кнопку, чтобы подтвердить.", reply_markup=keyboard)
         return
 
     # Если пользователь подписан, продолжаем обработку
@@ -85,6 +89,17 @@ async def handle_message(message: types.Message):
             await message.reply("Не удалось обработать ссылку. Проверьте её и попробуйте снова.")
     else:
         await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube-видео.")
+
+@dp.callback_query_handler(lambda c: c.data == "confirm_subscription")
+async def confirm_subscription(callback_query: types.CallbackQuery):
+    """Обработчик для кнопки 'Я подписался'."""
+    is_subscribed = await check_subscription(callback_query.from_user.id)
+
+    if is_subscribed:
+        await bot.answer_callback_query(callback_query.id, "Спасибо за подписку!")
+        await bot.send_message(callback_query.from_user.id, "Теперь вы можете скачать видео. Отправьте ссылку на YouTube.")
+    else:
+        await bot.answer_callback_query(callback_query.id, "Пожалуйста, убедитесь, что вы подписались на канал.")
 
 @dp.callback_query_handler(lambda c: c.data.startswith("download"))
 async def handle_download_callback(callback_query: types.CallbackQuery):

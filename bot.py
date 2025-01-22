@@ -44,9 +44,10 @@ async def check_subscription(user_id):
     """Проверяет, подписан ли пользователь на канал."""
     try:
         member = await bot.get_chat_member(CHANNEL_ID, user_id)
+        logging.info(f"Пользователь {user_id} имеет статус {member.status}.")
         return member.status in ["member", "administrator", "creator"]
     except Exception as e:
-        logging.error(f"Ошибка проверки подписки: {e}")
+        logging.error(f"Ошибка проверки подписки для пользователя {user_id}: {e}")
         return False
 
 @dp.message_handler()

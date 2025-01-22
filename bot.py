@@ -11,8 +11,9 @@ load_dotenv()
 
 # Токен бота
 TOKEN = os.getenv("TOKEN")
-if not TOKEN:
-    raise ValueError("Не задан TOKEN. Убедитесь, что он указан в переменных окружения.")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+if not TOKEN or not WEBHOOK_URL:
+    raise ValueError("Необходимо указать TOKEN и WEBHOOK_URL в переменных окружения.")
 
 # Инициализация бота и диспетчера
 bot = Bot(token=TOKEN)
@@ -26,6 +27,7 @@ logging.basicConfig(
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 МБ - ограничение Telegram на отправку файлов
 
+
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
     """Обработчик команды /start."""
@@ -37,6 +39,7 @@ async def start_handler(message: types.Message):
     )
     await message.reply(welcome_text)
 
+
 @dp.message_handler()
 async def handle_message(message: types.Message):
     """Обработчик сообщений (ссылки)."""
@@ -44,7 +47,7 @@ async def handle_message(message: types.Message):
         try:
             yt = YouTube(message.text)
             logging.info(f"Видео успешно загружено: {yt.title}")
-            
+
             keyboard = InlineKeyboardMarkup()
 
             # Добавляем кнопки для выбора качества видео
@@ -52,16 +55,13 @@ async def handle_message(message: types.Message):
                 keyboard.add(InlineKeyboardButton("360p", callback_data=f"video|360p|{yt.watch_url}"))
             if yt.streams.filter(res="720p", file_extension="mp4").first():
                 keyboard.add(InlineKeyboardButton("720p", callback_data=f"video|720p|{yt.watch_url}"))
-            
+
             # Кнопка для скачивания аудио
             keyboard.add(InlineKeyboardButton("Скачать аудио", callback_data=f"audio|{yt.watch_url}"))
 
             await message.reply("Выберите, что вы хотите скачать:", reply_markup=keyboard)
-        except KeyError:
-            logging.error("Ошибка KeyError. Проверьте совместимость pytube с текущей версией YouTube.")
-            await message.reply("Ошибка при обработке ссылки. Попробуйте обновить бота.")
         except Exception as e:
-            logging.error(f"Общая ошибка обработки ссылки: {e}")
+            logging.error(f"Ошибка обработки ссылки: {e}")
             await message.reply("Не удалось обработать ссылку. Проверьте её и попробуйте снова.")
     else:
         await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube-видео.")
@@ -96,6 +96,7 @@ async def handle_video_download(callback_query: types.CallbackQuery):
         logging.error(f"Ошибка загрузки видео: {e}")
         await bot.send_message(callback_query.from_user.id, "Произошла ошибка при скачивании видео.")
 
+
 @dp.callback_query_handler(lambda c: c.data.startswith("audio"))
 async def handle_audio_download(callback_query: types.CallbackQuery):
     """Обработчик скачивания аудио."""
@@ -122,6 +123,22 @@ async def handle_audio_download(callback_query: types.CallbackQuery):
         logging.error(f"Ошибка загрузки аудио: {e}")
         await bot.send_message(callback_query.from_user.id, "Произошла ошибка при скачивании аудио.")
 
+
+async def on_startup(dp):
+    """Действия при старте бота."""
+    try:
+        await bot.set_webhook(WEBHOOK_URL)
+        logging.info("Webhook установлен успешно.")
+    except Exception as e:
+        logging.error(f"Ошибка установки webhook: {e}")
+
+
+async def on_shutdown(dp):
+    """Действия при завершении работы бота."""
+    await bot.delete_webhook()
+    logging.info("Webhook успешно удалён.")
+
+
 if __name__ == "__main__":
     executor.start_webhook(
         dispatcher=dp,
@@ -132,4 +149,3 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", 8443)),  # Используется переменная окружения PORT
         skip_updates=True,
     )
-

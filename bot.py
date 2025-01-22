@@ -2,14 +2,15 @@ import os
 import logging
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from yt_dlp import YoutubeDL
+from pytube import YouTube
 from dotenv import load_dotenv
 import aiofiles
+from hashlib import md5
 
 # Загрузка переменных окружения
 load_dotenv()
 
-# Токен бота и URL вебхука
+# Токен бота
 TOKEN = os.getenv("TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not TOKEN or not WEBHOOK_URL:
@@ -27,24 +28,8 @@ logging.basicConfig(
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 МБ - ограничение Telegram на отправку файлов
 
-def get_ydl_options(resolution=None):
-    """Опции для загрузки через yt-dlp."""
-    ydl_opts = {
-        'format': f'bestvideo[height<={resolution}]+bestaudio/best' if resolution else 'bestaudio',
-        'outtmpl': '%(title)s.%(ext)s',
-        'quiet': True,
-    }
-    return ydl_opts
-
-async def download_video(url, resolution=None):
-    """Скачивание видео через yt-dlp."""
-    try:
-        with YoutubeDL(get_ydl_options(resolution)) as ydl:
-            info = ydl.extract_info(url, download=True)
-            return ydl.prepare_filename(info)
-    except Exception as e:
-        logging.error(f"Ошибка при загрузке видео: {e}")
-        return None
+# Словарь для хранения ссылок
+video_data = {}
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
@@ -62,10 +47,20 @@ async def handle_message(message: types.Message):
     """Обработчик сообщений (ссылки)."""
     if "youtube.com" in message.text or "youtu.be" in message.text:
         try:
+            yt = YouTube(message.text)
+            video_id = md5(message.text.encode('utf-8')).hexdigest()[:10]  # Хэшируем ссылку для уникальности
+            video_data[video_id] = message.text  # Сохраняем ссылку в словарь
+
             keyboard = InlineKeyboardMarkup()
-            keyboard.add(InlineKeyboardButton("360p", callback_data=f"video|360p|{message.text}"))
-            keyboard.add(InlineKeyboardButton("720p", callback_data=f"video|720p|{message.text}"))
-            keyboard.add(InlineKeyboardButton("Скачать аудио", callback_data=f"audio|{message.text}"))
+
+            # Добавляем кнопки для выбора качества видео
+            if yt.streams.filter(res="360p", file_extension="mp4").first():
+                keyboard.add(InlineKeyboardButton("360p", callback_data=f"video|360p|{video_id}"))
+            if yt.streams.filter(res="720p", file_extension="mp4").first():
+                keyboard.add(InlineKeyboardButton("720p", callback_data=f"video|720p|{video_id}"))
+
+            # Кнопка для скачивания аудио
+            keyboard.add(InlineKeyboardButton("Скачать аудио", callback_data=f"audio|{video_id}"))
 
             await message.reply("Выберите, что вы хотите скачать:", reply_markup=keyboard)
         except Exception as e:
@@ -78,56 +73,64 @@ async def handle_message(message: types.Message):
 async def handle_video_download(callback_query: types.CallbackQuery):
     """Обработчик скачивания видео."""
     try:
-        await bot.answer_callback_query(callback_query.id, "Начинаю обработку...")
-        _, resolution, url = callback_query.data.split("|")
-        logging.info(f"Запрос на скачивание видео. URL: {url}, разрешение: {resolution}")
+        _, resolution, video_id = callback_query.data.split("|")
+        video_url = video_data.get(video_id)  # Получаем ссылку из словаря
+        if not video_url:
+            await callback_query.message.reply("Видео не найдено.")
+            return
+        yt = YouTube(video_url)
+        stream = yt.streams.filter(res=resolution, file_extension="mp4").first()
 
-        file_path = await download_video(url, resolution)
-
-        if not file_path:
-            logging.error("Видео не было скачано. Возможно, формат или разрешение недоступны.")
-            await bot.send_message(callback_query.from_user.id, "Не удалось скачать видео. Попробуйте другой формат.")
+        if not stream:
+            await bot.answer_callback_query(callback_query.id, "Видео в этом качестве недоступно.", show_alert=True)
             return
 
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(callback_query.from_user.id, "Скачиваю видео, это может занять некоторое время...")
+
+        file_path = stream.download()
+
         if os.path.getsize(file_path) > MAX_FILE_SIZE:
-            logging.warning(f"Файл {file_path} превышает лимит 50 МБ.")
             await bot.send_message(callback_query.from_user.id, "Видео слишком большое для отправки через Telegram.")
             os.remove(file_path)
             return
 
         async with aiofiles.open(file_path, mode='rb') as video:
-            await bot.send_video(callback_query.from_user.id, video, caption="🎥 Ваше видео готово!")
-        logging.info(f"Видео {file_path} успешно отправлено пользователю.")
+            await bot.send_video(callback_query.from_user.id, video, caption=f"🎥 {yt.title}")
         os.remove(file_path)
     except Exception as e:
-        logging.error(f"Ошибка в обработчике handle_video_download: {e}")
-        await bot.send_message(callback_query.from_user.id, "Произошла ошибка при скачивании видео.")
+        logging.error(f"Ошибка загрузки видео: {e}")
+        await callback_query.message.reply("Произошла ошибка при скачивании видео.")
 
 @dp.callback_query_handler(lambda c: c.data.startswith("audio"))
 async def handle_audio_download(callback_query: types.CallbackQuery):
     """Обработчик скачивания аудио."""
     try:
-        await bot.answer_callback_query(callback_query.id, "Начинаю обработку...")
-        _, url = callback_query.data.split("|")
-        logging.info(f"Запрос на скачивание аудио. URL: {url}")
+        _, video_id = callback_query.data.split("|")
+        video_url = video_data.get(video_id)  # Получаем ссылку из словаря
+        if not video_url:
+            await callback_query.message.reply("Аудио не найдено.")
+            return
+        yt = YouTube(video_url)
+        stream = yt.streams.filter(only_audio=True).first()
 
-        file_path = await download_video(url)
-
-        if not file_path:
-            logging.error("Аудио не было скачано. Возможно, формат недоступен.")
-            await bot.send_message(callback_query.from_user.id, "Не удалось скачать аудио.")
+        if not stream:
+            await bot.answer_callback_query(callback_query.id, "Аудио недоступно.", show_alert=True)
             return
 
-        file_name = file_path.replace(file_path.split('.')[-1], 'mp3')
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(callback_query.from_user.id, "Скачиваю аудио, это может занять некоторое время...")
+
+        file_path = stream.download()
+        file_name = f"{yt.title}.mp3"
         os.rename(file_path, file_name)
 
         async with aiofiles.open(file_name, mode='rb') as audio:
-            await bot.send_audio(callback_query.from_user.id, audio, caption="🎵 Ваше аудио готово!")
-        logging.info(f"Аудио {file_name} успешно отправлено пользователю.")
+            await bot.send_audio(callback_query.from_user.id, audio, caption=f"🎵 {yt.title}")
         os.remove(file_name)
     except Exception as e:
-        logging.error(f"Ошибка в обработчике handle_audio_download: {e}")
-        await bot.send_message(callback_query.from_user.id, "Произошла ошибка при скачивании аудио.")
+        logging.error(f"Ошибка загрузки аудио: {e}")
+        await callback_query.message.reply("Произошла ошибка при скачивании аудио.")
 
 async def on_startup(dp):
     """Действия при старте бота."""
@@ -149,6 +152,6 @@ if __name__ == "__main__":
         on_startup=on_startup,
         on_shutdown=on_shutdown,
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 8443)),
+        port=int(os.getenv("PORT", 8443)),  # Используется переменная окружения PORT
         skip_updates=True,
     )

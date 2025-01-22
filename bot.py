@@ -36,40 +36,14 @@ async def start_handler(message: types.Message):
         "Привет! 👋\n\n"
         "Этот бот поможет скачать видео с YouTube.\n"
         "Просто отправьте ссылку на видео, и выберите желаемое качество.\n\n"
-        "❗ Обратите внимание: перед использованием убедитесь, что вы подписаны на наш канал."
+        "❗ Вы можете подписаться на наш канал для поддержки, но это не обязательно для использования бота."
     )
     await message.reply(welcome_text)
-
-async def check_subscription(user_id):
-    """Проверяет, подписан ли пользователь на канал."""
-    try:
-        member = await bot.get_chat_member(CHANNEL_ID, user_id)
-        logging.info(f"Пользователь {user_id} имеет статус {member.status}.")
-        return member.status in ["member", "administrator", "creator"]
-    except Exception as e:
-        logging.error(f"Ошибка проверки подписки для пользователя {user_id}: {e}")
-        return False
 
 @dp.message_handler()
 async def handle_message(message: types.Message):
     """Обработчик сообщений (ссылки)."""
-    # Проверяем подписку
-    is_subscribed = await check_subscription(message.from_user.id)
-
-    if not is_subscribed:
-        # Создаем клавиатуру с кнопкой для подписки
-        keyboard = InlineKeyboardMarkup()
-        subscribe_button = InlineKeyboardButton("Подписаться на канал", url=f"https://t.me/{CHANNEL_ID}")
-        keyboard.add(subscribe_button)
-
-        # Добавляем кнопку для подтверждения подписки
-        subscribe_confirm_button = InlineKeyboardButton("Я подписался", callback_data="confirm_subscription")
-        keyboard.add(subscribe_confirm_button)
-
-        await message.reply("Чтобы использовать бота, подпишитесь на наш канал и нажмите кнопку, чтобы подтвердить.", reply_markup=keyboard)
-        return
-
-    # Если пользователь подписан, продолжаем обработку
+    # Если пользователь отправил ссылку на YouTube
     if "youtube.com" in message.text or "youtu.be" in message.text:
         try:
             yt = YouTube(message.text)
@@ -88,18 +62,11 @@ async def handle_message(message: types.Message):
             logging.error(f"Ошибка обработки ссылки: {e}")
             await message.reply("Не удалось обработать ссылку. Проверьте её и попробуйте снова.")
     else:
-        await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube-видео.")
-
-@dp.callback_query_handler(lambda c: c.data == "confirm_subscription")
-async def confirm_subscription(callback_query: types.CallbackQuery):
-    """Обработчик для кнопки 'Я подписался'."""
-    is_subscribed = await check_subscription(callback_query.from_user.id)
-
-    if is_subscribed:
-        await bot.answer_callback_query(callback_query.id, "Спасибо за подписку!")
-        await bot.send_message(callback_query.from_user.id, "Теперь вы можете скачать видео. Отправьте ссылку на YouTube.")
-    else:
-        await bot.answer_callback_query(callback_query.id, "Пожалуйста, убедитесь, что вы подписались на канал.")
+        # Если ссылка не на YouTube
+        keyboard = InlineKeyboardMarkup()
+        subscribe_button = InlineKeyboardButton("Подписаться на канал", url=f"https://t.me/{CHANNEL_ID}")
+        keyboard.add(subscribe_button)
+        await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube-видео. Если хотите, можете подписаться на наш канал.", reply_markup=keyboard)
 
 @dp.callback_query_handler(lambda c: c.data.startswith("download"))
 async def handle_download_callback(callback_query: types.CallbackQuery):

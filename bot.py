@@ -2,9 +2,9 @@ import os
 import logging
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from yt_dlp import YoutubeDL
 from dotenv import load_dotenv
 import aiofiles
-import yt_dlp
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -27,18 +27,24 @@ logging.basicConfig(
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 МБ - ограничение Telegram на отправку файлов
 
-
-def download_video_or_audio(url, format_type="video"):
-    """Скачивает видео или аудио с YouTube с использованием yt-dlp."""
+def get_ydl_options(resolution=None):
+    """Опции для загрузки через yt-dlp."""
     ydl_opts = {
-        'format': 'bestvideo+bestaudio' if format_type == "video" else 'bestaudio',
-        'outtmpl': f'%(title)s.%(ext)s',
-        'quiet': True
+        'format': f'bestvideo[height<={resolution}]+bestaudio/best' if resolution else 'bestaudio',
+        'outtmpl': '%(title)s.%(ext)s',
+        'quiet': True,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        return info['title'], ydl.prepare_filename(info)
+    return ydl_opts
 
+async def download_video(url, resolution=None):
+    """Скачивание видео через yt-dlp."""
+    try:
+        with YoutubeDL(get_ydl_options(resolution)) as ydl:
+            info = ydl.extract_info(url, download=True)
+            return ydl.prepare_filename(info)
+    except Exception as e:
+        logging.error(f"Ошибка при загрузке видео: {e}")
+        return None
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
@@ -51,16 +57,14 @@ async def start_handler(message: types.Message):
     )
     await message.reply(welcome_text)
 
-
 @dp.message_handler()
 async def handle_message(message: types.Message):
     """Обработчик сообщений (ссылки)."""
     if "youtube.com" in message.text or "youtu.be" in message.text:
         try:
             keyboard = InlineKeyboardMarkup()
-
-            # Добавляем кнопки для выбора качества видео
-            keyboard.add(InlineKeyboardButton("Скачать видео", callback_data=f"video|{message.text}"))
+            keyboard.add(InlineKeyboardButton("360p", callback_data=f"video|360p|{message.text}"))
+            keyboard.add(InlineKeyboardButton("720p", callback_data=f"video|720p|{message.text}"))
             keyboard.add(InlineKeyboardButton("Скачать аудио", callback_data=f"audio|{message.text}"))
 
             await message.reply("Выберите, что вы хотите скачать:", reply_markup=keyboard)
@@ -70,49 +74,60 @@ async def handle_message(message: types.Message):
     else:
         await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube-видео.")
 
-
 @dp.callback_query_handler(lambda c: c.data.startswith("video"))
 async def handle_video_download(callback_query: types.CallbackQuery):
     """Обработчик скачивания видео."""
     try:
-        _, url = callback_query.data.split("|")
+        await bot.answer_callback_query(callback_query.id, "Начинаю обработку...")
+        _, resolution, url = callback_query.data.split("|")
+        logging.info(f"Запрос на скачивание видео. URL: {url}, разрешение: {resolution}")
 
-        await bot.answer_callback_query(callback_query.id)
-        await bot.send_message(callback_query.from_user.id, "Скачиваю видео, это может занять некоторое время...")
+        file_path = await download_video(url, resolution)
 
-        title, file_path = download_video_or_audio(url, format_type="video")
+        if not file_path:
+            logging.error("Видео не было скачано. Возможно, формат или разрешение недоступны.")
+            await bot.send_message(callback_query.from_user.id, "Не удалось скачать видео. Попробуйте другой формат.")
+            return
 
         if os.path.getsize(file_path) > MAX_FILE_SIZE:
+            logging.warning(f"Файл {file_path} превышает лимит 50 МБ.")
             await bot.send_message(callback_query.from_user.id, "Видео слишком большое для отправки через Telegram.")
             os.remove(file_path)
             return
 
         async with aiofiles.open(file_path, mode='rb') as video:
-            await bot.send_video(callback_query.from_user.id, video, caption=f"🎥 {title}")
+            await bot.send_video(callback_query.from_user.id, video, caption="🎥 Ваше видео готово!")
+        logging.info(f"Видео {file_path} успешно отправлено пользователю.")
         os.remove(file_path)
     except Exception as e:
-        logging.error(f"Ошибка загрузки видео: {e}")
+        logging.error(f"Ошибка в обработчике handle_video_download: {e}")
         await bot.send_message(callback_query.from_user.id, "Произошла ошибка при скачивании видео.")
-
 
 @dp.callback_query_handler(lambda c: c.data.startswith("audio"))
 async def handle_audio_download(callback_query: types.CallbackQuery):
     """Обработчик скачивания аудио."""
     try:
+        await bot.answer_callback_query(callback_query.id, "Начинаю обработку...")
         _, url = callback_query.data.split("|")
+        logging.info(f"Запрос на скачивание аудио. URL: {url}")
 
-        await bot.answer_callback_query(callback_query.id)
-        await bot.send_message(callback_query.from_user.id, "Скачиваю аудио, это может занять некоторое время...")
+        file_path = await download_video(url)
 
-        title, file_path = download_video_or_audio(url, format_type="audio")
+        if not file_path:
+            logging.error("Аудио не было скачано. Возможно, формат недоступен.")
+            await bot.send_message(callback_query.from_user.id, "Не удалось скачать аудио.")
+            return
 
-        async with aiofiles.open(file_path, mode='rb') as audio:
-            await bot.send_audio(callback_query.from_user.id, audio, caption=f"🎵 {title}")
-        os.remove(file_path)
+        file_name = file_path.replace(file_path.split('.')[-1], 'mp3')
+        os.rename(file_path, file_name)
+
+        async with aiofiles.open(file_name, mode='rb') as audio:
+            await bot.send_audio(callback_query.from_user.id, audio, caption="🎵 Ваше аудио готово!")
+        logging.info(f"Аудио {file_name} успешно отправлено пользователю.")
+        os.remove(file_name)
     except Exception as e:
-        logging.error(f"Ошибка загрузки аудио: {e}")
+        logging.error(f"Ошибка в обработчике handle_audio_download: {e}")
         await bot.send_message(callback_query.from_user.id, "Произошла ошибка при скачивании аудио.")
-
 
 async def on_startup(dp):
     """Действия при старте бота."""
@@ -122,12 +137,10 @@ async def on_startup(dp):
     except Exception as e:
         logging.error(f"Ошибка установки webhook: {e}")
 
-
 async def on_shutdown(dp):
     """Действия при завершении работы бота."""
     await bot.delete_webhook()
     logging.info("Webhook успешно удалён.")
-
 
 if __name__ == "__main__":
     executor.start_webhook(
@@ -136,6 +149,6 @@ if __name__ == "__main__":
         on_startup=on_startup,
         on_shutdown=on_shutdown,
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 8443)),  # Используется переменная окружения PORT
+        port=int(os.getenv("PORT", 8443)),
         skip_updates=True,
     )

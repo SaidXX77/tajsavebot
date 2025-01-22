@@ -57,11 +57,15 @@ async def handle_message(message: types.Message):
             keyboard.add(InlineKeyboardButton("Скачать аудио", callback_data=f"audio|{yt.watch_url}"))
 
             await message.reply("Выберите, что вы хотите скачать:", reply_markup=keyboard)
+        except KeyError:
+            logging.error("Ошибка KeyError. Проверьте совместимость pytube с текущей версией YouTube.")
+            await message.reply("Ошибка при обработке ссылки. Попробуйте обновить бота.")
         except Exception as e:
-            logging.error(f"Ошибка обработки ссылки: {e}")
+            logging.error(f"Общая ошибка обработки ссылки: {e}")
             await message.reply("Не удалось обработать ссылку. Проверьте её и попробуйте снова.")
     else:
         await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube-видео.")
+
 
 @dp.callback_query_handler(lambda c: c.data.startswith("video"))
 async def handle_video_download(callback_query: types.CallbackQuery):

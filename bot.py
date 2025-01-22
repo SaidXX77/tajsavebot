@@ -123,4 +123,13 @@ async def handle_audio_download(callback_query: types.CallbackQuery):
         await bot.send_message(callback_query.from_user.id, "Произошла ошибка при скачивании аудио.")
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    executor.start_webhook(
+        dispatcher=dp,
+        webhook_path="/webhook",
+        on_startup=on_startup,
+        on_shutdown=on_shutdown,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8443)),  # Используется переменная окружения PORT
+        skip_updates=True,
+    )
+

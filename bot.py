@@ -47,6 +47,8 @@ async def handle_message(message: types.Message):
     if "youtube.com" in message.text or "youtu.be" in message.text:
         try:
             yt = YouTube(message.text)
+            logging.info(f"Видео успешно загружено: {yt.title}")  # Логирование успешной загрузки видео
+
             keyboard = InlineKeyboardMarkup()
 
             # Добавляем кнопки для выбора форматов
@@ -59,7 +61,8 @@ async def handle_message(message: types.Message):
 
             await message.reply("Выберите качество видео:", reply_markup=keyboard)
         except Exception as e:
-            logging.error(f"Ошибка обработки ссылки: {e}")
+            # Логируем ошибку, если не удалось загрузить видео
+            logging.error(f"Ошибка при загрузке видео: {e}")
             await message.reply("Не удалось обработать ссылку. Проверьте её и попробуйте снова.")
     else:
         # Если ссылка не на YouTube
@@ -67,6 +70,7 @@ async def handle_message(message: types.Message):
         subscribe_button = InlineKeyboardButton("Подписаться на канал", url=f"https://t.me/{CHANNEL_ID}")
         keyboard.add(subscribe_button)
         await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube-видео. Если хотите, можете подписаться на наш канал.", reply_markup=keyboard)
+
 
 @dp.callback_query_handler(lambda c: c.data.startswith("download"))
 async def handle_download_callback(callback_query: types.CallbackQuery):

@@ -9,13 +9,10 @@ import aiofiles
 # Загрузка переменных окружения
 load_dotenv()
 
-# Токен бота и настройки
+# Токен бота
 TOKEN = os.getenv("TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
-
-if not all([TOKEN, WEBHOOK_URL, CHANNEL_ID]):
-    raise ValueError("Не заданы все необходимые переменные окружения. Убедитесь, что TOKEN, WEBHOOK_URL и CHANNEL_ID установлены.")
+if not TOKEN:
+    raise ValueError("Не задан TOKEN. Убедитесь, что он указан в переменных окружения.")
 
 # Инициализация бота и диспетчера
 bot = Bot(token=TOKEN)
@@ -27,59 +24,51 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 МБ
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 МБ - ограничение Telegram на отправку файлов
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
     """Обработчик команды /start."""
     welcome_text = (
         "Привет! 👋\n\n"
-        "Этот бот поможет скачать видео с YouTube.\n"
+        "Я помогу вам скачать видео или аудио с YouTube. 🟡\n\n"
         "Просто отправьте ссылку на видео, и выберите желаемое качество.\n\n"
-        "❗ Вы можете подписаться на наш канал для поддержки, но это не обязательно для использования бота."
+        "❗ Видео должно быть меньше 50 МБ."
     )
     await message.reply(welcome_text)
 
 @dp.message_handler()
 async def handle_message(message: types.Message):
     """Обработчик сообщений (ссылки)."""
-    # Если пользователь отправил ссылку на YouTube
     if "youtube.com" in message.text or "youtu.be" in message.text:
         try:
             yt = YouTube(message.text)
-            logging.info(f"Видео успешно загружено: {yt.title}")  # Логирование успешной загрузки видео
-
+            logging.info(f"Видео успешно загружено: {yt.title}")
+            
             keyboard = InlineKeyboardMarkup()
 
-            # Добавляем кнопки для выбора форматов
-            keyboard.add(
-                InlineKeyboardButton("360p", callback_data=f"download|360p|{yt.watch_url}"),
-                InlineKeyboardButton("480p", callback_data=f"download|480p|{yt.watch_url}"),
-                InlineKeyboardButton("720p", callback_data=f"download|720p|{yt.watch_url}"),
-                InlineKeyboardButton("1080p", callback_data=f"download|1080p|{yt.watch_url}")
-            )
+            # Добавляем кнопки для выбора качества видео
+            if yt.streams.filter(res="360p", file_extension="mp4").first():
+                keyboard.add(InlineKeyboardButton("360p", callback_data=f"video|360p|{yt.watch_url}"))
+            if yt.streams.filter(res="720p", file_extension="mp4").first():
+                keyboard.add(InlineKeyboardButton("720p", callback_data=f"video|720p|{yt.watch_url}"))
+            
+            # Кнопка для скачивания аудио
+            keyboard.add(InlineKeyboardButton("Скачать аудио", callback_data=f"audio|{yt.watch_url}"))
 
-            await message.reply("Выберите качество видео:", reply_markup=keyboard)
+            await message.reply("Выберите, что вы хотите скачать:", reply_markup=keyboard)
         except Exception as e:
-            # Логируем ошибку, если не удалось загрузить видео
-            logging.error(f"Ошибка при загрузке видео: {e}")
+            logging.error(f"Ошибка обработки ссылки: {e}")
             await message.reply("Не удалось обработать ссылку. Проверьте её и попробуйте снова.")
     else:
-        # Если ссылка не на YouTube
-        keyboard = InlineKeyboardMarkup()
-        subscribe_button = InlineKeyboardButton("Подписаться на канал", url=f"https://t.me/{CHANNEL_ID}")
-        keyboard.add(subscribe_button)
-        await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube-видео. Если хотите, можете подписаться на наш канал.", reply_markup=keyboard)
+        await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube-видео.")
 
-
-@dp.callback_query_handler(lambda c: c.data.startswith("download"))
-async def handle_download_callback(callback_query: types.CallbackQuery):
-    """Обработчик выбора формата для скачивания."""
+@dp.callback_query_handler(lambda c: c.data.startswith("video"))
+async def handle_video_download(callback_query: types.CallbackQuery):
+    """Обработчик скачивания видео."""
     try:
         _, resolution, url = callback_query.data.split("|")
         yt = YouTube(url)
-
-        # Выбираем поток с нужным разрешением
         stream = yt.streams.filter(res=resolution, file_extension="mp4").first()
 
         if not stream:
@@ -87,9 +76,8 @@ async def handle_download_callback(callback_query: types.CallbackQuery):
             return
 
         await bot.answer_callback_query(callback_query.id)
-        await bot.send_message(callback_query.from_user.id, "Начинаю загрузку...")
+        await bot.send_message(callback_query.from_user.id, "Скачиваю видео, это может занять некоторое время...")
 
-        # Загружаем видео и отправляем пользователю
         file_path = stream.download()
 
         if os.path.getsize(file_path) > MAX_FILE_SIZE:
@@ -97,45 +85,38 @@ async def handle_download_callback(callback_query: types.CallbackQuery):
             os.remove(file_path)
             return
 
-        try:
-            async with aiofiles.open(file_path, mode='rb') as video:
-                await bot.send_video(callback_query.from_user.id, video)
-        except Exception as e:
-            logging.error(f"Ошибка при отправке видео: {e}")
-            await bot.send_message(callback_query.from_user.id, "Произошла ошибка при отправке видео.")
-        finally:
-            os.remove(file_path)  # Удаляем файл после отправки
-
+        async with aiofiles.open(file_path, mode='rb') as video:
+            await bot.send_video(callback_query.from_user.id, video, caption=f"🎥 {yt.title}")
+        os.remove(file_path)
     except Exception as e:
         logging.error(f"Ошибка загрузки видео: {e}")
-        await bot.send_message(callback_query.from_user.id, "Произошла ошибка при загрузке видео.")
+        await bot.send_message(callback_query.from_user.id, "Произошла ошибка при скачивании видео.")
 
-async def on_startup(dp):
-    """Действия при запуске бота."""
-    logging.info("Starting webhook setup...")
+@dp.callback_query_handler(lambda c: c.data.startswith("audio"))
+async def handle_audio_download(callback_query: types.CallbackQuery):
+    """Обработчик скачивания аудио."""
     try:
-        response = await bot.set_webhook(WEBHOOK_URL)
-        logging.info(f"Webhook set successfully: {response}")
-    except Exception as e:
-        logging.error(f"Ошибка установки вебхука: {e}")
+        _, url = callback_query.data.split("|")
+        yt = YouTube(url)
+        stream = yt.streams.filter(only_audio=True).first()
 
-async def on_shutdown(dp):
-    """Действия при остановке бота."""
-    logging.info("Deleting webhook...")
-    try:
-        await bot.delete_webhook()
-        logging.info("Webhook deleted successfully.")
+        if not stream:
+            await bot.answer_callback_query(callback_query.id, "Аудио недоступно.", show_alert=True)
+            return
+
+        await bot.answer_callback_query(callback_query.id)
+        await bot.send_message(callback_query.from_user.id, "Скачиваю аудио, это может занять некоторое время...")
+
+        file_path = stream.download()
+        file_name = f"{yt.title}.mp3"
+        os.rename(file_path, file_name)
+
+        async with aiofiles.open(file_name, mode='rb') as audio:
+            await bot.send_audio(callback_query.from_user.id, audio, caption=f"🎵 {yt.title}")
+        os.remove(file_name)
     except Exception as e:
-        logging.error(f"Ошибка удаления вебхука: {e}")
+        logging.error(f"Ошибка загрузки аудио: {e}")
+        await bot.send_message(callback_query.from_user.id, "Произошла ошибка при скачивании аудио.")
 
 if __name__ == "__main__":
-    # Запуск бота
-    executor.start_webhook(
-        dispatcher=dp,
-        webhook_path="/webhook",  # Путь вебхука
-        on_startup=on_startup,   # Функция, выполняемая при старте
-        on_shutdown=on_shutdown,  # Функция, выполняемая при остановке
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", 8443)),  # Порт передаётся в переменных окружения
-        skip_updates=True,        # Пропустить старые обновления
-    )
+    executor.start_polling(dp, skip_updates=True)

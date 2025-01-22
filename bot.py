@@ -9,7 +9,7 @@ import aiofiles
 # Загрузка переменных окружения
 load_dotenv()
 
-# Токен бота
+# Токен бота и URL вебхука
 TOKEN = os.getenv("TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not TOKEN or not WEBHOOK_URL:
@@ -33,9 +33,9 @@ async def start_handler(message: types.Message):
     """Обработчик команды /start."""
     welcome_text = (
         "Привет! 👋\n\n"
-        "Я помогу вам скачать видео или аудио с YouTube. 🟡\n\n"
+        "Я помогу вам скачать видео или аудио с YouTube. 🔹\n\n"
         "Просто отправьте ссылку на видео, и выберите желаемое качество.\n\n"
-        "❗ Видео должно быть меньше 50 МБ."
+        "❟ Видео должно быть меньше 50 МБ."
     )
     await message.reply(welcome_text)
 
@@ -128,7 +128,8 @@ async def on_startup(dp):
     """Действия при старте бота."""
     try:
         await bot.set_webhook(WEBHOOK_URL)
-        logging.info("Webhook установлен успешно.")
+        webhook_info = await bot.get_webhook_info()
+        logging.info(f"Webhook Info: {webhook_info}")
     except Exception as e:
         logging.error(f"Ошибка установки webhook: {e}")
 

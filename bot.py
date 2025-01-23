@@ -1,10 +1,11 @@
 import os
 import logging
-from aiogram import Bot, Dispatcher, html, F
+from aiogram import Bot, Dispatcher, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from yt_dlp import YoutubeDL
 import aiofiles
 import asyncio
+import html  # Используем стандартный модуль html из Python
 
 # Получение токена из переменных окружения
 TOKEN = os.getenv("TOKEN")
@@ -49,7 +50,8 @@ async def video_handler(message: Message):
     try:
         direct_link = get_direct_link(url)
         if direct_link:
-            text = html.link("Вот, лови", html.quote(direct_link))
+            # Экранирование ссылки с помощью html.escape
+            text = f'<a href="{html.escape(direct_link)}">Вот, лови</a>'
             await message.answer(text, parse_mode="HTML")
         else:
             await message.reply("Не удалось найти видео в подходящем качестве.")

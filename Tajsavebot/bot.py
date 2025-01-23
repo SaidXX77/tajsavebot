@@ -1,10 +1,9 @@
 import os
 import logging
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from aiogram import Bot, Dispatcher
+from aiogram.filters import Text, Command
+from aiogram.types import Message
 from yt_dlp import YoutubeDL
-import aiofiles
-import asyncio
 import html  # Используем стандартный модуль html из Python
 
 # Получение токена из переменных окружения
@@ -38,12 +37,12 @@ def get_direct_link(video_url):
             return fmt['url']
     return None
 
-@dp.message(F.text == "/start")
+@dp.message(Command("start"))
 async def start_handler(message: Message):
     """Обработчик команды /start."""
     await message.reply("Просто напиши мне ссылку на видео YouTube, а я скачаю его для тебя.")
 
-@dp.message(F.text.regexp(r'^https:\/\/(www\.youtube.*|youtu\.be.*|youtube\.com.*)'))
+@dp.message(Text(startswith="https://"))
 async def video_handler(message: Message):
     """Обработчик сообщений с YouTube ссылками."""
     url = message.text
@@ -68,4 +67,5 @@ async def main():
         logging.error(f"Ошибка при запуске бота: {e}")
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())

@@ -10,11 +10,15 @@ from hashlib import md5
 # Загрузка переменных окружения
 load_dotenv()
 
-# Токен бота
+# Получение переменных окружения
 TOKEN = os.getenv("TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-if not TOKEN or not WEBHOOK_URL:
-    raise ValueError("Необходимо указать TOKEN и WEBHOOK_URL в переменных окружения.")
+MODE = os.getenv("MODE", "webhook").lower()  # Режим: webhook или polling
+
+if not TOKEN:
+    raise ValueError("Необходимо указать TOKEN в переменных окружения.")
+if MODE == "webhook" and not WEBHOOK_URL:
+    raise ValueError("Для режима webhook необходимо указать WEBHOOK_URL в переменных окружения.")
 
 # Инициализация бота и диспетчера
 bot = Bot(token=TOKEN)
@@ -134,24 +138,30 @@ async def handle_audio_download(callback_query: types.CallbackQuery):
 
 async def on_startup(dp):
     """Действия при старте бота."""
-    try:
-        await bot.set_webhook(WEBHOOK_URL)
-        logging.info("Webhook установлен успешно.")
-    except Exception as e:
-        logging.error(f"Ошибка установки webhook: {e}")
+    if MODE == "webhook":
+        try:
+            await bot.set_webhook(WEBHOOK_URL)
+            logging.info("Webhook установлен успешно.")
+        except Exception as e:
+            logging.error(f"Ошибка установки webhook: {e}")
 
 async def on_shutdown(dp):
     """Действия при завершении работы бота."""
-    await bot.delete_webhook()
-    logging.info("Webhook успешно удалён.")
+    if MODE == "webhook":
+        await bot.delete_webhook()
+        logging.info("Webhook успешно удалён.")
 
 if __name__ == "__main__":
-    executor.start_webhook(
-        dispatcher=dp,
-        webhook_path="/webhook",
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", 8443)),  # Используется переменная окружения PORT
-        skip_updates=True,
-    )
+    if MODE == "webhook":
+        executor.start_webhook(
+            dispatcher=dp,
+            webhook_path="/webhook",
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+            host="0.0.0.0",
+            port=int(os.getenv("PORT", 8443)),
+            skip_updates=True,
+        )
+    elif MODE == "polling":
+        logging.info("Запуск бота в режиме polling")
+        executor.start_polling(dp, skip_updates=True)

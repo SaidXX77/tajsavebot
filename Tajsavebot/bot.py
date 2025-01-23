@@ -1,54 +1,71 @@
-from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
 import os
-import yt_dlp
+import logging
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from yt_dlp import YoutubeDL
+import aiofiles
+import asyncio
+import html  # Используем стандартный модуль html из Python
 
-# Ваш токен
-TOKEN = "7341799826:AAFS-TMnZIEhbV8ZV2QB5X-DelfMl4skKaE"
+# Получение токена из переменных окружения
+TOKEN = os.getenv("TOKEN")
+if not TOKEN:
+    raise ValueError("Не задан токен Telegram")
 
+# Инициализация бота и диспетчера
 bot = Bot(token=TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 
+# Логирование
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
-@dp.message_handler(commands=["start"])
-async def start(message: types.Message):
-    await message.reply("Привет! Отправь мне ссылку на YouTube, и я скачаю видео для тебя.")
+# Настройки yt-dlp
+def get_direct_link(video_url):
+    ydl_opts = {
+        'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]',
+        'quiet': True,
+        'no_warnings': True,
+        'outtmpl': '%(id)s.%(ext)s',
+        'merge_output_format': 'mp4'
+    }
+    with YoutubeDL(ydl_opts) as ydl:
+        info_dict = ydl.extract_info(video_url, download=False)
+    for fmt in info_dict.get('formats', []):
+        if fmt.get('height') == 720:  # Только 720p
+            return fmt['url']
+    return None
 
+@dp.message(F.text == "/start")
+async def start_handler(message: Message):
+    """Обработчик команды /start."""
+    await message.reply("Просто напиши мне ссылку на видео YouTube, а я скачаю его для тебя.")
 
-@dp.message_handler()
-async def download_video(message: types.Message):
-    url = message.text.strip()
-
-    if not url.startswith("http") or "youtube.com" not in url and "youtu.be" not in url:
-        await message.reply("Пожалуйста, отправьте корректную ссылку на YouTube.")
-        return
-
+@dp.message(F.text.regexp(r'^https:\/\/(www\.youtube.*|youtu\.be.*|youtube\.com.*)'))
+async def video_handler(message: Message):
+    """Обработчик сообщений с YouTube ссылками."""
+    url = message.text
     try:
-        # Настройки yt-dlp
-        ydl_opts = {
-            "format": "best",
-            "outtmpl": "downloads/%(title)s.%(ext)s",
-            "socket_timeout": 60,
-            "retries": 3,
-            "fragment_retries": 10,  # Повторная попытка загрузки сегментов
-            "concurrent_fragment_downloads": 5,  # Одновременная загрузка нескольких сегментов
-        }
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video_path = ydl.prepare_filename(info)
-
-        # Отправляем файл
-        await bot.send_message(message.chat.id, "Видео скачано, отправляю файл...")
-        with open(video_path, "rb") as video:
-            await bot.send_video(message.chat.id, video)
-
-        os.remove(video_path)
+        direct_link = get_direct_link(url)
+        if direct_link:
+            # Экранирование ссылки с помощью html.escape
+            text = f'<a href="{html.escape(direct_link)}">Вот, лови</a>'
+            await message.answer(text, parse_mode="HTML")
+        else:
+            await message.reply("Не удалось найти видео в подходящем качестве.")
     except Exception as e:
-        await message.reply(f"Произошла ошибка: {str(e)}")
-        print(f"Ошибка: {str(e)}")
+        logging.error(f"Ошибка при обработке видео: {e}")
+        await message.reply("Произошла ошибка при обработке видео.")
 
+async def main():
+    """Запуск бота."""
+    try:
+        logging.info("Запуск бота...")
+        await dp.start_polling(bot)
+    except Exception as e:
+        logging.error(f"Ошибка при запуске бота: {e}")
 
 if __name__ == "__main__":
-    os.makedirs("downloads", exist_ok=True)
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())

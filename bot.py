@@ -1,25 +1,28 @@
 import os
-import yt_dlp
+import logging
+from aiogram import Bot, Dispatcher, html, F
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from yt_dlp import YoutubeDL
+import aiofiles
 import asyncio
-from aiogram import Bot, Dispatcher, Router, types
-from aiogram.types import Message
-from aiogram.filters import Command, Text
-import nest_asyncio
-nest_asyncio.apply()
-from aiogram.utils.markdown import link
 
-# Получаем токен из переменной окружения
-TOKEN = os.getenv("TOKEN", "7341799826:AAFS-TMnZIEhbV8ZV2QB5X-DelfMl4skKaE")
+# Получение токена из переменных окружения
+TOKEN = os.getenv("TOKEN")
 if not TOKEN:
-    raise ValueError("Не указан токен бота. Установите переменную окружения TOKEN.")
+    raise ValueError("Не задан токен Telegram")
 
+# Инициализация бота и диспетчера
 bot = Bot(token=TOKEN)
-router = Router()
 dp = Dispatcher()
-dp.include_router(router)
 
+# Логирование
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+# Настройки yt-dlp
 def get_direct_link(video_url):
-    """Получение прямой ссылки на видео."""
     ydl_opts = {
         'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]',
         'quiet': True,
@@ -27,35 +30,40 @@ def get_direct_link(video_url):
         'outtmpl': '%(id)s.%(ext)s',
         'merge_output_format': 'mp4'
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    with YoutubeDL(ydl_opts) as ydl:
         info_dict = ydl.extract_info(video_url, download=False)
-    formats = info_dict['formats']
-    for fmt in formats:
-        if fmt.get('height') == 720:
+    for fmt in info_dict.get('formats', []):
+        if fmt.get('height') == 720:  # Только 720p
             return fmt['url']
     return None
 
-@router.message(Command("start"))
-async def start_command_handler(message: Message):
+@dp.message(F.text == "/start")
+async def start_handler(message: Message):
     """Обработчик команды /start."""
-    await message.reply("Просто отправьте мне ссылку на видео YouTube, и я скачаю его для вас!")
+    await message.reply("Просто напиши мне ссылку на видео YouTube, а я скачаю его для тебя.")
 
-@router.message(Text(regexp=r'^https:\/\/(www\.youtube.*|youtu\.be.*|youtube\.com.*)'))
-async def youtube_link_handler(message: Message):
-    """Обработчик сообщений с YouTube-ссылками."""
-    url = message.text.strip()
-    await message.answer("Обрабатываю ссылку, пожалуйста, подождите...")
+@dp.message(F.text.regexp(r'^https:\/\/(www\.youtube.*|youtu\.be.*|youtube\.com.*)'))
+async def video_handler(message: Message):
+    """Обработчик сообщений с YouTube ссылками."""
+    url = message.text
     try:
         direct_link = get_direct_link(url)
         if direct_link:
-            text = link("Вот, лови", direct_link)
+            text = html.link("Вот, лови", html.quote(direct_link))
             await message.answer(text, parse_mode="HTML")
         else:
-            await message.answer("Не удалось найти видео в разрешении 720p.")
+            await message.reply("Не удалось найти видео в подходящем качестве.")
     except Exception as e:
-        await message.answer(f"Произошла ошибка при обработке ссылки: {e}")
+        logging.error(f"Ошибка при обработке видео: {e}")
+        await message.reply("Произошла ошибка при обработке видео.")
+
+async def main():
+    """Запуск бота."""
+    try:
+        logging.info("Запуск бота...")
+        await dp.start_polling(bot)
+    except Exception as e:
+        logging.error(f"Ошибка при запуске бота: {e}")
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(dp.start_polling(bot, skip_updates=True))
-    loop.run_forever()
+    asyncio.run(main())
